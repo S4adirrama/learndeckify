@@ -1,40 +1,78 @@
 const fs = require('fs');
 const path = require('path');
 const ffmpeg = require('fluent-ffmpeg');
-const { TextToSpeechClient } = require('@google-cloud/text-to-speech'); // Correct import
+const { TextToSpeechClient } = require('@google-cloud/text-to-speech');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { auth, db } = require('../firebase');
 
 // Initialize Google Generative AI Client (Gemini API)
 const genAI = new GoogleGenerativeAI(process.env.API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 // Initialize Google Cloud Text-to-Speech Client
-const textToSpeechClient = new TextToSpeechClient(); // Correct initialization
+const textToSpeechClient = new TextToSpeechClient();
 
-// Helper to convert PDF to images
-async function convertPdfToImages(pdfPath, outputDir) {
-  const pdfImage = new PdfImage(pdfPath);
-  const images = [];
-  const totalPages = await pdfImage.getNumberOfPages();
-  for (let i = 0; i < totalPages; i++) {
-    const outputFilePath = path.join(outputDir, `page-${i + 1}.png`);
-    await pdfImage.convertPage(i).then(() => {
-      images.push(outputFilePath);
+// Controller function for user sign-up
+exports.signUpUser = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    // Create a new user in Firebase Authentication using Admin SDK
+    const userRecord = await auth.createUser({
+      email: email,
+      password: password,
     });
+
+    // Optionally, add additional user data to Firestore
+    await db.collection('users').doc(userRecord.uid).set({
+      email: userRecord.email,
+      createdAt: new Date(),
+    });
+
+    // Generate a custom token for the user
+    const customToken = await auth.createCustomToken(userRecord.uid);
+    res.status(201).send({ message: 'User created successfully', token: customToken });
+  } catch (error) {
+    console.error('Error creating new user:', error);
+    res.status(500).send({ error: 'Failed to create user' });
   }
-  return images;
-}
+};
 
-// Helper to get the duration of an audio file using ffprobe
-function getAudioDuration(filePath) {
-  return new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(filePath, (err, metadata) => {
-      if (err) return reject(err);
-      const duration = metadata.format.duration;
-      resolve(duration);
-    });
-  });
-}
+// Controller function for user sign-in
+exports.signInUser = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    // Verify user's email and password (simplified example, normally handled in frontend)
+    const userRecord = await auth.getUserByEmail(email);
+    
+    // Generate a custom token
+    const customToken = await auth.createCustomToken(userRecord.uid);
+
+    res.status(200).send({ token: customToken });
+  } catch (error) {
+    console.error('Error signing in user:', error);
+    res.status(401).send({ error: 'Authentication failed' });
+  }
+};
+
+// Middleware to verify Firebase ID token
+exports.verifyToken = async (req, res, next) => {
+  const idToken = req.headers.authorization?.split(' ')[1];
+
+  if (!idToken) {
+    return res.status(401).send({ error: 'No token provided' });
+  }
+
+  try {
+    const decodedToken = await auth.verifyIdToken(idToken);
+    req.user = decodedToken;
+    next();
+  } catch (error) {
+    console.error('Error verifying token:', error);
+    res.status(401).send({ error: 'Invalid token' });
+  }
+};
 
 // Controller function for handling file upload and generating video
 exports.generateVideo = async (req, res) => {
@@ -111,6 +149,8 @@ exports.generateVideo = async (req, res) => {
 
 // Controller function for quiz generation using Gemini API
 exports.generateQuiz = async (req, res) => {
+  const outputDir = path.join(__dirname, '..', 'output');
+
   try {
     const file = req.file;
     const extension = file.originalname.split('.').pop().toLowerCase();
@@ -158,3 +198,30 @@ exports.handleChat = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// Helper to convert PDF to images
+async function convertPdfToImages(pdfPath, outputDir) {
+  // Use an appropriate PDF-to-image conversion library here
+  // This is a placeholder for actual PDF to image conversion logic
+  const pdfImage = new PdfImage(pdfPath);
+  const images = [];
+  const totalPages = await pdfImage.getNumberOfPages();
+  for (let i = 0; i < totalPages; i++) {
+    const outputFilePath = path.join(outputDir, `page-${i + 1}.png`);
+    await pdfImage.convertPage(i).then(() => {
+      images.push(outputFilePath);
+    });
+  }
+  return images;
+}
+
+// Helper to get the duration of an audio file using ffprobe
+function getAudioDuration(filePath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) return reject(err);
+      const duration = metadata.format.duration;
+      resolve(duration);
+    });
+  });
+}

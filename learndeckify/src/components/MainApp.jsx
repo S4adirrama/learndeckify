@@ -1,6 +1,4 @@
 import React, { useState } from 'react';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -9,67 +7,45 @@ const MainApp = () => {
   const [file, setFile] = useState(null);
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [quiz, setQuiz] = useState('');
-  const [videoLink, setVideoLink] = useState('');
+  const [quizData, setQuizData] = useState(null);
+  const [userAnswers, setUserAnswers] = useState({});
+  const [score, setScore] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
 
+  // Handle user sign out
   const handleSignOut = async () => {
-    await signOut(auth);
+    localStorage.removeItem('authToken');
     navigate('/auth');
   };
 
+  // Handle file selection
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
   };
 
-  const handleGenerateVideo = async () => {
-    if (!file) return;
-
-    setLoading(true);
-    setOutput('');
-    setVideoLink('');
-
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await axios.post('http://localhost:5000/api/gemini/generate-video', formData, {
-        responseType: 'blob',
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      // Create a download link for the generated video
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      setVideoLink(url);
-      setOutput('Video generated successfully!');
-    } catch (error) {
-      console.error('Error generating video:', error);
-      setOutput('Failed to generate video.');
-    }
-
-    setLoading(false);
-  };
-
+  // Handle quiz generation
   const handleGenerateQuiz = async () => {
     if (!file) return;
 
     setLoading(true);
     setOutput('');
-    setQuiz('');
+    setQuizData(null);
+    setScore(null);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
 
+      const token = localStorage.getItem('authToken');
       const response = await axios.post('http://localhost:5000/api/gemini/generate-quiz', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`,
         },
       });
 
-      setQuiz(response.data.quiz);
+      const quiz = parseQuiz(response.data.quiz);
+      setQuizData(quiz);
       setOutput('Quiz generated successfully!');
     } catch (error) {
       console.error('Error generating quiz:', error);
@@ -79,20 +55,61 @@ const MainApp = () => {
     setLoading(false);
   };
 
+  // Parse quiz data from API response
+  const parseQuiz = (quizText) => {
+    const questions = quizText.split('Question:').slice(1).map(q => {
+      const [question, ...rest] = q.trim().split('\n');
+      const options = rest.slice(0, 4).map(o => o.trim());
+      const correctAnswer = rest.slice(-1)[0].split('Correct Answer: ')[1].trim();
+      return { question, options, correctAnswer };
+    });
+    return questions;
+  };
+
+  // Handle answer selection
+  const handleAnswerChange = (questionIndex, selectedOption) => {
+    setUserAnswers(prev => ({
+      ...prev,
+      [questionIndex]: selectedOption,
+    }));
+  };
+
+  // Handle quiz submission
+  const handleSubmitQuiz = () => {
+    if (!quizData) return;
+
+    let correctCount = 0;
+    quizData.forEach((question, index) => {
+      if (userAnswers[index] === question.correctAnswer) {
+        correctCount += 1;
+      }
+    });
+
+    const totalQuestions = quizData.length;
+    const calculatedScore = (correctCount / totalQuestions) * 100;
+    setScore(calculatedScore.toFixed(2));
+  };
+
+  // Handle chat message
   const handleChat = async (e) => {
     e.preventDefault();
     const userMessage = e.target.elements.chatInput.value;
     setLoading(true);
-    setChatMessages((prev) => [...prev, { sender: 'User', text: userMessage }]);
+    setChatMessages(prev => [...prev, { sender: 'User', text: userMessage }]);
     e.target.reset();
 
     try {
-      const response = await axios.post('http://localhost:5000/api/gemini/chat', { message: userMessage });
+      const token = localStorage.getItem('authToken');
+      const response = await axios.post('http://localhost:5000/api/gemini/chat', { message: userMessage }, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
       const botResponse = response.data.response;
-      setChatMessages((prev) => [...prev, { sender: 'Decky', text: botResponse }]);
+      setChatMessages(prev => [...prev, { sender: 'Decky', text: botResponse }]);
     } catch (error) {
       console.error('Error generating chat response:', error);
-      setChatMessages((prev) => [...prev, { sender: 'Decky', text: 'Sorry, something went wrong.' }]);
+      setChatMessages(prev => [...prev, { sender: 'Decky', text: 'Sorry, something went wrong.' }]);
     }
 
     setLoading(false);
@@ -112,7 +129,7 @@ const MainApp = () => {
       </header>
 
       <div className="flex flex-col lg:flex-row justify-between items-start w-full max-w-6xl mx-auto py-10 space-y-8 lg:space-y-0 lg:space-x-8">
-        {/* Left Side - File Upload and Video Generation */}
+        {/* Left Side - File Upload and Quiz Generation */}
         <div className="flex flex-col w-full lg:w-1/2 space-y-8">
           <div className="bg-white p-8 rounded-lg shadow-lg">
             <h2 className="text-2xl font-bold text-purple-600 mb-4">Upload PDF or PPT</h2>
@@ -122,31 +139,6 @@ const MainApp = () => {
                 {file ? file.name : 'Drag and drop your presentation here or click to upload'}
               </label>
             </div>
-            <button
-              onClick={handleGenerateVideo}
-              className="w-full bg-purple-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-purple-700 transition duration-300"
-            >
-              {loading ? (
-                <span className="animate-spin border-4 border-white border-t-transparent rounded-full w-5 h-5 inline-block"></span>
-              ) : (
-                'Generate Video'
-              )}
-            </button>
-            {output && (
-              <div className="mt-4">
-                <p className="text-green-600 font-semibold mb-2">{output}</p>
-                {videoLink && (
-                  <div className="mt-4">
-                    <a href={videoLink} download="generated_video.mp4" className="text-blue-600 underline">
-                      Download your video
-                    </a>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="bg-white p-8 rounded-lg shadow-lg">
-            <h2 className="text-2xl font-bold text-purple-600 mb-4">AI-Generated Quizzes</h2>
             <button
               onClick={handleGenerateQuiz}
               className="w-full bg-purple-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-purple-700 transition duration-300"
@@ -160,8 +152,39 @@ const MainApp = () => {
             {output && (
               <div className="mt-4">
                 <p className="text-green-600 font-semibold mb-2">{output}</p>
-                {quiz && (
-                  <div className="mt-4 text-gray-700 whitespace-pre-line">{quiz}</div>
+                {quizData && (
+                  <div className="mt-4 text-gray-700">
+                    {quizData.map((question, index) => (
+                      <div key={index} className="mb-6">
+                        <p className="font-semibold">{index + 1}. {question.question}</p>
+                        {question.options.map((option, optIndex) => (
+                          <div key={optIndex}>
+                            <label>
+                              <input
+                                type="radio"
+                                name={`question-${index}`}
+                                value={option}
+                                onChange={() => handleAnswerChange(index, option)}
+                                className="mr-2"
+                              />
+                              {option}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    <button
+                      onClick={handleSubmitQuiz}
+                      className="mt-4 w-full bg-green-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-green-700 transition duration-300"
+                    >
+                      Submit Quiz
+                    </button>
+                    {score !== null && (
+                      <div className="mt-4">
+                        <p className="text-blue-600 font-semibold">Your Score: {score}%</p>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
