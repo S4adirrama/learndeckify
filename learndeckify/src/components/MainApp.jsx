@@ -55,7 +55,6 @@ const MainApp = () => {
     setLoading(false);
   };
 
-  // Parse quiz data from API response
   const parseQuiz = (quizText) => {
     const questions = quizText.split('Question:').slice(1).map(q => {
       const [question, ...rest] = q.trim().split('\n');
@@ -66,7 +65,6 @@ const MainApp = () => {
     return questions;
   };
 
-  // Handle answer selection
   const handleAnswerChange = (questionIndex, selectedOption) => {
     setUserAnswers(prev => ({
       ...prev,
@@ -74,7 +72,6 @@ const MainApp = () => {
     }));
   };
 
-  // Handle quiz submission
   const handleSubmitQuiz = () => {
     if (!quizData) return;
 
@@ -90,7 +87,6 @@ const MainApp = () => {
     setScore(calculatedScore.toFixed(2));
   };
 
-  // Handle chat message
   const handleChat = async (e) => {
     e.preventDefault();
     const userMessage = e.target.elements.chatInput.value;
@@ -117,7 +113,6 @@ const MainApp = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="flex justify-between items-center bg-purple-600 text-white px-6 py-4 shadow-md">
         <h1 className="text-2xl font-bold">Learndeckify</h1>
         <button
@@ -129,7 +124,6 @@ const MainApp = () => {
       </header>
 
       <div className="flex flex-col lg:flex-row justify-between items-start w-full max-w-6xl mx-auto py-10 space-y-8 lg:space-y-0 lg:space-x-8">
-        {/* Left Side - File Upload and Quiz Generation */}
         <div className="flex flex-col w-full lg:w-1/2 space-y-8">
           <div className="bg-white p-8 rounded-lg shadow-lg">
             <h2 className="text-2xl font-bold text-purple-600 mb-4">Upload PDF or PPT</h2>
@@ -191,7 +185,6 @@ const MainApp = () => {
           </div>
         </div>
 
-        {/* Right Side - Chat Bot */}
         <div className="bg-white p-8 rounded-lg shadow-lg w-full lg:w-1/2">
           <h2 className="text-2xl font-bold text-purple-600 mb-4">Decky - AI tutor</h2>
           <div className="h-64 overflow-y-scroll mb-4 p-4 border border-gray-300 rounded-lg bg-gray-50">
